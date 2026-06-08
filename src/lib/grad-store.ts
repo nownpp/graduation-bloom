@@ -1,5 +1,7 @@
 // LocalStorage data layer for graduation booking app
-export type MenuItem = {
+import { useEffect, useState } from "react";
+
+
   id: string;
   name: string;
   price: number;
