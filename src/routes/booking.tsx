@@ -4,9 +4,7 @@ import { FloralBackdrop, GradHeader } from "@/components/FloralBackdrop";
 import { store, useStorageVersion, type MenuItem } from "@/lib/grad-store";
 
 export const Route = createFileRoute("/booking")({
-  head: () => ({
-    meta: [{ title: "حجز الوجبة — تجمع التخرج 2026" }],
-  }),
+  head: () => ({ meta: [{ title: "حجز الوجبة — تجمع التخرج 2026" }] }),
   component: BookingPage,
 });
 
@@ -14,8 +12,8 @@ function BookingPage() {
   const navigate = useNavigate();
   useStorageVersion();
   const [user, setUser] = useState(() => store.getCurrentUser());
-  const [itemId, setItemId] = useState<string>(user?.itemId ?? "");
-  const [saved, setSaved] = useState(false);
+  const [selected, setSelected] = useState<string[]>(user?.itemIds ?? []);
+  const [editing, setEditing] = useState<boolean>(!(user?.itemIds && user.itemIds.length > 0));
 
   useEffect(() => {
     if (!user) navigate({ to: "/" });
@@ -33,21 +31,26 @@ function BookingPage() {
     return Array.from(map.entries());
   }, [menu]);
 
-  const selected = menu.find(m => m.id === itemId) || null;
-  const foodPrice = selected?.price ?? 0;
-  const delivery = selected ? settings.deliveryFee : 0;
+  const selectedItems = selected
+    .map(id => menu.find(m => m.id === id))
+    .filter((x): x is MenuItem => !!x);
+  const foodPrice = selectedItems.reduce((s, i) => s + i.price, 0);
+  const delivery = selectedItems.length > 0 ? settings.deliveryFee : 0;
   const total = foodPrice + delivery;
 
-  function save() {
-    if (!user) return;
+  function toggle(id: string) {
+    setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }
+
+  function confirm() {
+    if (!user || selected.length === 0) return;
     const students = store.getStudents();
-    const updated = students.map(s => s.id === user.id ? { ...s, itemId: itemId || null } : s);
+    const updated = students.map(s => s.id === user.id ? { ...s, itemIds: selected } : s);
     store.setStudents(updated);
     const me = updated.find(s => s.id === user.id)!;
     store.setCurrentUser(me);
     setUser(me);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    setEditing(false);
   }
 
   function logout() {
@@ -57,12 +60,20 @@ function BookingPage() {
 
   if (!user) return null;
 
+  // Confirmed view — show order only
+  const confirmedItems = (user.itemIds ?? [])
+    .map(id => menu.find(m => m.id === id))
+    .filter((x): x is MenuItem => !!x);
+  const confirmedFood = confirmedItems.reduce((s, i) => s + i.price, 0);
+  const confirmedDelivery = confirmedItems.length > 0 ? settings.deliveryFee : 0;
+  const confirmedTotal = confirmedFood + confirmedDelivery;
+
   return (
     <FloralBackdrop>
       <GradHeader />
       <main className="px-4 pb-16 max-w-2xl mx-auto">
         <div className="floral-card p-6 md:p-8 mb-6">
-          <div className="flex items-center justify-between gap-3 mb-2">
+          <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-sm text-muted-foreground">أهلاً بيك 🌹</p>
               <h2 className="text-2xl font-bold text-gradient-rose">{user.name}</h2>
@@ -74,61 +85,121 @@ function BookingPage() {
           </div>
         </div>
 
-        <div className="floral-card p-6 md:p-8">
-          <h3 className="text-xl font-bold mb-1">🍽️ اختار وجبتك</h3>
-          <p className="text-sm text-muted-foreground mb-5">اختر من القائمة، الديلفري {settings.deliveryFee} جنيه</p>
+        {!editing && confirmedItems.length > 0 ? (
+          <div className="floral-card p-6 md:p-8">
+            <div className="text-center mb-5">
+              <div className="text-5xl mb-2">✅</div>
+              <h3 className="text-xl font-bold text-gradient-rose">تم تأكيد طلبك</h3>
+              <p className="text-sm text-muted-foreground mt-1">تم إضافة طلبك إلى قائمة الأدمن</p>
+            </div>
 
-          <div className="space-y-4">
-            {grouped.map(([cat, items]) => (
-              <div key={cat}>
-                <label className="block text-sm font-bold mb-2 text-rose-deep" style={{ color: "var(--rose-deep)" }}>
-                  {cat}
-                </label>
-                <select
-                  value={items.some(i => i.id === itemId) ? itemId : ""}
-                  onChange={e => setItemId(e.target.value)}
-                  className="w-full rounded-xl bg-cream/60 border border-border px-4 py-3 outline-none focus:ring-2 focus:ring-ring text-right"
-                >
-                  <option value="">— اختر من {cat} —</option>
-                  {items.map(it => (
-                    <option key={it.id} value={it.id}>
-                      {it.emoji ?? ""} {it.name} — {it.price} جنيه
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ))}
-          </div>
+            <div className="space-y-2">
+              {confirmedItems.map(it => (
+                <div key={it.id} className="flex justify-between items-center bg-cream/70 rounded-xl p-3 border border-border">
+                  <span className="font-semibold">{it.emoji} {it.name}</span>
+                  <span className="font-bold">{it.price} ج</span>
+                </div>
+              ))}
+            </div>
 
-          {selected && (
-            <div className="mt-6 rounded-xl bg-cream/70 border border-border p-4 space-y-2 text-sm">
+            <div className="mt-5 rounded-xl bg-cream/70 border border-border p-4 space-y-2 text-sm">
               <div className="flex justify-between">
-                <span>{selected.emoji} {selected.name}</span>
-                <span className="font-semibold">{foodPrice} جنيه</span>
+                <span>إجمالي الأكل</span>
+                <span className="font-semibold">{confirmedFood} ج</span>
               </div>
               <div className="flex justify-between text-muted-foreground">
                 <span>🛵 رسوم الديلفري</span>
-                <span>{delivery} جنيه</span>
+                <span>{confirmedDelivery} ج</span>
               </div>
               <div className="border-t border-border my-2" />
               <div
                 className="rounded-lg p-3 text-center font-bold text-lg text-primary-foreground"
                 style={{ background: "var(--gradient-rose)" }}
               >
-                إجمالي المبلغ المطلوب: {total} جنيه
+                إجمالي المبلغ المطلوب: {confirmedTotal} جنيه
               </div>
             </div>
-          )}
 
-          <button
-            onClick={save}
-            disabled={!itemId}
-            className="w-full mt-6 rounded-xl py-3.5 font-bold text-primary-foreground shadow-gold transition disabled:opacity-50 hover:scale-[1.02]"
-            style={{ background: "var(--gradient-gold)" }}
-          >
-            {saved ? "✅ تم حفظ طلبك" : "💾 تأكيد الحجز"}
-          </button>
-        </div>
+            <button
+              onClick={() => { setSelected(user.itemIds ?? []); setEditing(true); }}
+              className="w-full mt-5 rounded-xl py-3 font-bold border-2 border-border bg-cream/60 hover:bg-cream"
+            >
+              ✏️ تعديل الطلب
+            </button>
+          </div>
+        ) : (
+          <div className="floral-card p-6 md:p-8">
+            <h3 className="text-xl font-bold mb-1">🍽️ اختار وجباتك</h3>
+            <p className="text-sm text-muted-foreground mb-5">
+              يمكنك اختيار أكثر من صنف. الديلفري {settings.deliveryFee} جنيه يُضاف مرة واحدة.
+            </p>
+
+            <div className="space-y-6">
+              {grouped.map(([cat, items]) => (
+                <div key={cat}>
+                  <h4 className="font-bold mb-2" style={{ color: "var(--rose-deep)" }}>{cat}</h4>
+                  <div className="space-y-2">
+                    {items.map(it => {
+                      const checked = selected.includes(it.id);
+                      return (
+                        <label
+                          key={it.id}
+                          className={`flex items-center justify-between gap-3 rounded-xl border p-3 cursor-pointer transition ${
+                            checked ? "border-primary bg-cream shadow-soft" : "border-border bg-cream/40 hover:bg-cream/70"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggle(it.id)}
+                              className="w-5 h-5 accent-[color:var(--rose-deep)]"
+                            />
+                            <span className="font-semibold">{it.emoji} {it.name}</span>
+                          </div>
+                          <span className="font-bold text-sm">{it.price} ج</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {selected.length > 0 && (
+              <div className="mt-6 rounded-xl bg-cream/70 border border-border p-4 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span>عدد الأصناف</span>
+                  <span className="font-semibold">{selected.length}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>إجمالي الأكل</span>
+                  <span className="font-semibold">{foodPrice} ج</span>
+                </div>
+                <div className="flex justify-between text-muted-foreground">
+                  <span>🛵 رسوم الديلفري</span>
+                  <span>{delivery} ج</span>
+                </div>
+                <div className="border-t border-border my-2" />
+                <div
+                  className="rounded-lg p-3 text-center font-bold text-lg text-primary-foreground"
+                  style={{ background: "var(--gradient-rose)" }}
+                >
+                  إجمالي المبلغ المطلوب: {total} جنيه
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={confirm}
+              disabled={selected.length === 0}
+              className="w-full mt-6 rounded-xl py-3.5 font-bold text-primary-foreground shadow-gold transition disabled:opacity-50 hover:scale-[1.02]"
+              style={{ background: "var(--gradient-gold)" }}
+            >
+              💾 تأكيد الحجز
+            </button>
+          </div>
+        )}
       </main>
     </FloralBackdrop>
   );

@@ -56,15 +56,12 @@ function AdminDashboard() {
   const menu = store.getMenu();
   const settings = store.getSettings();
 
-  const studentsWithOrder = students.filter(s => s.itemId);
-  const totalExpected = studentsWithOrder.reduce((sum, s) => {
-    const it = menu.find(m => m.id === s.itemId);
-    return sum + (it?.price ?? 0) + settings.deliveryFee;
-  }, 0);
-  const totalCollected = studentsWithOrder.filter(s => s.paid).reduce((sum, s) => {
-    const it = menu.find(m => m.id === s.itemId);
-    return sum + (it?.price ?? 0) + settings.deliveryFee;
-  }, 0);
+  const studentsWithOrder = students.filter(s => (s.itemIds?.length ?? 0) > 0);
+  const sumFor = (s: typeof students[number]) =>
+    (s.itemIds ?? []).reduce((acc, id) => acc + (menu.find(m => m.id === id)?.price ?? 0), 0)
+    + ((s.itemIds?.length ?? 0) > 0 ? settings.deliveryFee : 0);
+  const totalExpected = studentsWithOrder.reduce((sum, s) => sum + sumFor(s), 0);
+  const totalCollected = studentsWithOrder.filter(s => s.paid).reduce((sum, s) => sum + sumFor(s), 0);
 
   return (
     <FloralBackdrop>
@@ -226,7 +223,7 @@ function OrderSummary() {
   const menu = store.getMenu();
   const counts = new Map<string, number>();
   students.forEach(s => {
-    if (s.itemId) counts.set(s.itemId, (counts.get(s.itemId) ?? 0) + 1);
+    (s.itemIds ?? []).forEach(id => counts.set(id, (counts.get(id) ?? 0) + 1));
   });
   const rows = Array.from(counts.entries()).map(([id, qty]) => {
     const it = menu.find(m => m.id === id);
@@ -294,14 +291,22 @@ function StudentsTable() {
             </thead>
             <tbody>
               {students.map(s => {
-                const it = menu.find(m => m.id === s.itemId);
-                const food = it?.price ?? 0;
-                const delivery = it ? settings.deliveryFee : 0;
+                const items = (s.itemIds ?? []).map(id => menu.find(m => m.id === id)).filter((x): x is NonNullable<typeof x> => !!x);
+                const food = items.reduce((a, b) => a + b.price, 0);
+                const delivery = items.length > 0 ? settings.deliveryFee : 0;
                 return (
                   <tr key={s.id} className="border-b border-border">
                     <td className="p-2 font-bold">{s.name}</td>
                     <td className="p-2">{s.phone}</td>
-                    <td className="p-2">{it ? `${it.emoji ?? ""} ${it.name}` : "—"}</td>
+                    <td className="p-2">
+                      {items.length === 0 ? "—" : (
+                        <ul className="space-y-0.5">
+                          {items.map((it, idx) => (
+                            <li key={idx}>{it.emoji ?? ""} {it.name} <span className="text-muted-foreground">({it.price} ج)</span></li>
+                          ))}
+                        </ul>
+                      )}
+                    </td>
                     <td className="p-2">{food} ج</td>
                     <td className="p-2">{delivery} ج</td>
                     <td className="p-2 font-bold">{food + delivery} ج</td>
@@ -334,10 +339,11 @@ function ExportSection() {
     const settings = store.getSettings();
     const header = ["الاسم", "التليفون", "الوجبة", "سعر الأكل", "ديلفري", "الإجمالي", "حالة الدفع"];
     const rows = students.map(s => {
-      const it = menu.find(m => m.id === s.itemId);
-      const food = it?.price ?? 0;
-      const delivery = it ? settings.deliveryFee : 0;
-      return [s.name, s.phone, it?.name ?? "", food, delivery, food + delivery, s.paid ? "دفع" : "لم يدفع"];
+      const items = (s.itemIds ?? []).map(id => menu.find(m => m.id === id)).filter((x): x is NonNullable<typeof x> => !!x);
+      const food = items.reduce((a, b) => a + b.price, 0);
+      const delivery = items.length > 0 ? settings.deliveryFee : 0;
+      const names = items.map(i => i.name).join(" + ");
+      return [s.name, s.phone, names, food, delivery, food + delivery, s.paid ? "دفع" : "لم يدفع"];
     });
     const csv = [header, ...rows]
       .map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(","))
