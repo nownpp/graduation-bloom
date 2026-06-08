@@ -115,9 +115,6 @@ export const store = {
 };
 
 export function useStorageVersion() {
-  // hook to re-render on storage updates
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { useEffect, useState } = require("react") as typeof import("react");
   const [v, setV] = useState(0);
   useEffect(() => {
     const handler = () => setV(x => x + 1);
