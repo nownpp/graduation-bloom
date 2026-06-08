@@ -291,14 +291,22 @@ function StudentsTable() {
             </thead>
             <tbody>
               {students.map(s => {
-                const it = menu.find(m => m.id === s.itemId);
-                const food = it?.price ?? 0;
-                const delivery = it ? settings.deliveryFee : 0;
+                const items = (s.itemIds ?? []).map(id => menu.find(m => m.id === id)).filter((x): x is NonNullable<typeof x> => !!x);
+                const food = items.reduce((a, b) => a + b.price, 0);
+                const delivery = items.length > 0 ? settings.deliveryFee : 0;
                 return (
                   <tr key={s.id} className="border-b border-border">
                     <td className="p-2 font-bold">{s.name}</td>
                     <td className="p-2">{s.phone}</td>
-                    <td className="p-2">{it ? `${it.emoji ?? ""} ${it.name}` : "—"}</td>
+                    <td className="p-2">
+                      {items.length === 0 ? "—" : (
+                        <ul className="space-y-0.5">
+                          {items.map((it, idx) => (
+                            <li key={idx}>{it.emoji ?? ""} {it.name} <span className="text-muted-foreground">({it.price} ج)</span></li>
+                          ))}
+                        </ul>
+                      )}
+                    </td>
                     <td className="p-2">{food} ج</td>
                     <td className="p-2">{delivery} ج</td>
                     <td className="p-2 font-bold">{food + delivery} ج</td>
