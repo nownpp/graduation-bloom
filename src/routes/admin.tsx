@@ -56,15 +56,12 @@ function AdminDashboard() {
   const menu = store.getMenu();
   const settings = store.getSettings();
 
-  const studentsWithOrder = students.filter(s => s.itemId);
-  const totalExpected = studentsWithOrder.reduce((sum, s) => {
-    const it = menu.find(m => m.id === s.itemId);
-    return sum + (it?.price ?? 0) + settings.deliveryFee;
-  }, 0);
-  const totalCollected = studentsWithOrder.filter(s => s.paid).reduce((sum, s) => {
-    const it = menu.find(m => m.id === s.itemId);
-    return sum + (it?.price ?? 0) + settings.deliveryFee;
-  }, 0);
+  const studentsWithOrder = students.filter(s => (s.itemIds?.length ?? 0) > 0);
+  const sumFor = (s: typeof students[number]) =>
+    (s.itemIds ?? []).reduce((acc, id) => acc + (menu.find(m => m.id === id)?.price ?? 0), 0)
+    + ((s.itemIds?.length ?? 0) > 0 ? settings.deliveryFee : 0);
+  const totalExpected = studentsWithOrder.reduce((sum, s) => sum + sumFor(s), 0);
+  const totalCollected = studentsWithOrder.filter(s => s.paid).reduce((sum, s) => sum + sumFor(s), 0);
 
   return (
     <FloralBackdrop>
