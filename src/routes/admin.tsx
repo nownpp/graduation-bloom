@@ -339,10 +339,11 @@ function ExportSection() {
     const settings = store.getSettings();
     const header = ["الاسم", "التليفون", "الوجبة", "سعر الأكل", "ديلفري", "الإجمالي", "حالة الدفع"];
     const rows = students.map(s => {
-      const it = menu.find(m => m.id === s.itemId);
-      const food = it?.price ?? 0;
-      const delivery = it ? settings.deliveryFee : 0;
-      return [s.name, s.phone, it?.name ?? "", food, delivery, food + delivery, s.paid ? "دفع" : "لم يدفع"];
+      const items = (s.itemIds ?? []).map(id => menu.find(m => m.id === id)).filter((x): x is NonNullable<typeof x> => !!x);
+      const food = items.reduce((a, b) => a + b.price, 0);
+      const delivery = items.length > 0 ? settings.deliveryFee : 0;
+      const names = items.map(i => i.name).join(" + ");
+      return [s.name, s.phone, names, food, delivery, food + delivery, s.paid ? "دفع" : "لم يدفع"];
     });
     const csv = [header, ...rows]
       .map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(","))
