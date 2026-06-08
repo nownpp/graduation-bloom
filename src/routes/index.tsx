@@ -35,14 +35,15 @@ function LoginPage() {
         id: crypto.randomUUID(),
         name: name.trim(),
         phone: phone.trim(),
-        itemId: null,
+        itemIds: [],
         paid: false,
         createdAt: Date.now(),
       };
       store.setStudents([...students, existing]);
     } else {
-      existing.name = name.trim();
-      store.setStudents(students.map(s => s.id === existing!.id ? existing! : s));
+      const updated: typeof existing = { ...existing, name: name.trim() };
+      store.setStudents(students.map(s => s.id === updated.id ? updated : s));
+      existing = updated;
     }
     store.setCurrentUser(existing);
     navigate({ to: "/booking" });
