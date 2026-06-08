@@ -14,7 +14,7 @@ export type Student = {
   id: string;
   name: string;
   phone: string;
-  itemId?: string | null;
+  itemIds?: string[];
   paid?: boolean;
   createdAt: number;
 };
