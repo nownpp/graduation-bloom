@@ -223,7 +223,7 @@ function OrderSummary() {
   const menu = store.getMenu();
   const counts = new Map<string, number>();
   students.forEach(s => {
-    if (s.itemId) counts.set(s.itemId, (counts.get(s.itemId) ?? 0) + 1);
+    (s.itemIds ?? []).forEach(id => counts.set(id, (counts.get(id) ?? 0) + 1));
   });
   const rows = Array.from(counts.entries()).map(([id, qty]) => {
     const it = menu.find(m => m.id === id);
