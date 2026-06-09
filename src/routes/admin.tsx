@@ -58,22 +58,30 @@ function AdminDashboard() {
   const settings = store.getSettings();
 
   const studentsWithOrder = students.filter(s => (s.itemIds?.length ?? 0) > 0);
-  const sumFor = (s: typeof students[number]) =>
-    (s.itemIds ?? []).reduce((acc, id) => acc + (menu.find(m => m.id === id)?.price ?? 0), 0)
-    + ((s.itemIds?.length ?? 0) > 0 ? settings.deliveryFee : 0);
-  const totalExpected = studentsWithOrder.reduce((sum, s) => sum + sumFor(s), 0);
-  const totalCollected = studentsWithOrder.filter(s => s.paid).reduce((sum, s) => sum + sumFor(s), 0);
+  const totals = students.map(s => ({ s, t: computeTotals(s, menu, settings) }));
+  const totalExpected = totals.reduce((a, x) => a + x.t.total, 0);
+  const totalCollected = totals.filter(x => x.s.paid).reduce((a, x) => a + x.t.total, 0);
+  const totalFood = totals.reduce((a, x) => a + x.t.food, 0);
+  const totalDrinks = totals.reduce((a, x) => a + x.t.drinks, 0);
+  const totalDelivery = totals.reduce((a, x) => a + x.t.delivery, 0);
+  const totalDonations = totals.reduce((a, x) => a + x.t.donation, 0);
 
   return (
     <FloralBackdrop>
       <GradHeader subtitle="لوحة الأدمن" />
       <main className="px-4 pb-20 max-w-6xl mx-auto space-y-8">
-        {/* Stats */}
         <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard label="إجمالي الحضور" value={students.length} emoji="👥" />
           <StatCard label="إجمالي الطلبات" value={studentsWithOrder.length} emoji="🍽️" />
           <StatCard label="المبالغ المتوقعة" value={`${totalExpected} ج`} emoji="💰" />
           <StatCard label="المبالغ المحصلة" value={`${totalCollected} ج`} emoji="✅" />
+        </section>
+
+        <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatCard label="إجمالي الوجبات" value={`${totalFood} ج`} emoji="🍗" />
+          <StatCard label="إجمالي المشروبات" value={`${totalDrinks} ج`} emoji="🥤" />
+          <StatCard label="إجمالي الديلفري" value={`${totalDelivery} ج`} emoji="🛵" />
+          <StatCard label="إجمالي التبرعات" value={`${totalDonations} ج`} emoji="🌷" />
         </section>
 
         <MenuManager />
