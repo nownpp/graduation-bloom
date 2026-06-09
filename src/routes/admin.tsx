@@ -347,13 +347,11 @@ function ExportSection() {
     const students = store.getStudents();
     const menu = store.getMenu();
     const settings = store.getSettings();
-    const header = ["الاسم", "التليفون", "الوجبة", "سعر الأكل", "ديلفري", "الإجمالي", "حالة الدفع"];
+    const header = ["الاسم", "التليفون", "الوجبة", "وجبات", "مشروبات", "ديلفري", "تبرع", "الإجمالي", "حالة الدفع"];
     const rows = students.map(s => {
-      const items = (s.itemIds ?? []).map(id => menu.find(m => m.id === id)).filter((x): x is NonNullable<typeof x> => !!x);
-      const food = items.reduce((a, b) => a + b.price, 0);
-      const delivery = items.length > 0 ? settings.deliveryFee : 0;
-      const names = items.map(i => i.name).join(" + ");
-      return [s.name, s.phone, names, food, delivery, food + delivery, s.paid ? "دفع" : "لم يدفع"];
+      const t = computeTotals(s, menu, settings);
+      const names = t.items.map(i => i.name).join(" + ");
+      return [s.name, s.phone, names, t.food, t.drinks, t.delivery, t.donation, t.total, s.paid ? "دفع" : "لم يدفع"];
     });
     const csv = [header, ...rows]
       .map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(","))
