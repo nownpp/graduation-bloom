@@ -1,7 +1,11 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { FloralBackdrop, GradHeader } from "@/components/FloralBackdrop";
-import { store, useStorageVersion, computeTotals, type MenuItem } from "@/lib/grad-store";
+import {
+  useMenu, useSettings, useCurrentStudent,
+  api, computeTotals, setCurrentUser,
+  type MenuItem,
+} from "@/lib/grad-store";
 
 export const Route = createFileRoute("/booking")({
   head: () => ({ meta: [{ title: "حجز الوجبة — تجمع التخرج 2026" }] }),
@@ -10,57 +14,78 @@ export const Route = createFileRoute("/booking")({
 
 function BookingPage() {
   const navigate = useNavigate();
-  useStorageVersion();
-  const [user, setUser] = useState(() => store.getCurrentUser());
-  const [selected, setSelected] = useState<string[]>(user?.itemIds ?? []);
-  const [donation, setDonation] = useState<number>(user?.donation ?? 0);
-  const [editing, setEditing] = useState<boolean>(!(user?.itemIds && user.itemIds.length > 0));
+  const student = useCurrentStudent();
+  const { menu, loading: menuLoading } = useMenu();
+  const { settings } = useSettings();
+
+  const [selected, setSelected] = useState<string[]>([]);
+  const [donation, setDonation] = useState<number>(0);
+  const [editing, setEditing] = useState<boolean>(false);
+  const [saving, setSaving] = useState(false);
+  const [bootstrapped, setBootstrapped] = useState(false);
+
+  // Initialize selection from student once loaded
+  useEffect(() => {
+    if (student && !bootstrapped) {
+      setSelected(student.item_ids ?? []);
+      setDonation(Number(student.donation ?? 0));
+      setEditing(!(student.item_ids && student.item_ids.length > 0));
+      setBootstrapped(true);
+    }
+  }, [student, bootstrapped]);
 
   useEffect(() => {
-    if (!user) navigate({ to: "/" });
-  }, [user, navigate]);
+    // If no local user reference, send to login
+    if (!localStorage.getItem("grad2026_current_user")) navigate({ to: "/" });
+  }, [navigate]);
 
-  const menu = store.getMenu().filter(m => !m.hidden);
-  const settings = store.getSettings();
+  const visibleMenu = useMemo(() => menu.filter(m => !m.hidden), [menu]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, MenuItem[]>();
-    menu.forEach(m => {
+    visibleMenu.forEach(m => {
       if (!map.has(m.category)) map.set(m.category, []);
       map.get(m.category)!.push(m);
     });
     return Array.from(map.entries());
-  }, [menu]);
+  }, [visibleMenu]);
 
-  const preview = computeTotals({ itemIds: selected, donation }, menu, settings);
+  const preview = computeTotals({ item_ids: selected, donation }, visibleMenu, settings);
 
   function toggle(id: string) {
     setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   }
 
-  function confirm() {
-    if (!user || selected.length === 0) return;
-    const students = store.getStudents();
-    const updated = students.map(s =>
-      s.id === user.id ? { ...s, itemIds: selected, donation: Math.max(0, donation || 0) } : s
-    );
-    store.setStudents(updated);
-    const me = updated.find(s => s.id === user.id)!;
-    store.setCurrentUser(me);
-    setUser(me);
-    setEditing(false);
+  async function confirm() {
+    if (!student || selected.length === 0) return;
+    setSaving(true);
+    try {
+      await api.updateStudent(student.id, { item_ids: selected, donation: Math.max(0, donation || 0) });
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function logout() {
-    store.setCurrentUser(null);
+    setCurrentUser(null);
     navigate({ to: "/" });
   }
 
-  if (!user) return null;
+  if (!student) {
+    return (
+      <FloralBackdrop>
+        <GradHeader />
+        <main className="px-4 pb-16 max-w-2xl mx-auto">
+          <div className="floral-card p-8 text-center text-muted-foreground">
+            جاري التحميل…
+          </div>
+        </main>
+      </FloralBackdrop>
+    );
+  }
 
-  // Confirmed view uses fresh menu (no hidden filter so removed items still show price if present)
-  const fullMenu = store.getMenu();
-  const confirmed = computeTotals(user, fullMenu, settings);
+  const confirmed = computeTotals(student, menu, settings);
 
   return (
     <FloralBackdrop>
@@ -70,8 +95,8 @@ function BookingPage() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-sm text-muted-foreground">أهلاً بيك 🌹</p>
-              <h2 className="text-2xl font-bold text-gradient-rose">{user.name}</h2>
-              <p className="text-xs text-muted-foreground mt-1">📱 {user.phone}</p>
+              <h2 className="text-2xl font-bold text-gradient-rose">{student.name}</h2>
+              <p className="text-xs text-muted-foreground mt-1">📱 {student.phone}</p>
             </div>
             <button onClick={logout} className="text-xs text-muted-foreground hover:text-destructive underline">
               تسجيل خروج
@@ -110,7 +135,7 @@ function BookingPage() {
             </div>
 
             <button
-              onClick={() => { setSelected(user.itemIds ?? []); setDonation(user.donation ?? 0); setEditing(true); }}
+              onClick={() => { setSelected(student.item_ids ?? []); setDonation(Number(student.donation ?? 0)); setEditing(true); }}
               className="w-full mt-5 rounded-xl py-3 font-bold border-2 border-border bg-cream/60 hover:bg-cream"
             >
               ✏️ تعديل الطلب
@@ -123,39 +148,42 @@ function BookingPage() {
               يمكنك اختيار أكثر من صنف. الديلفري {settings.deliveryFee} جنيه يُضاف مرة واحدة.
             </p>
 
-            <div className="space-y-6">
-              {grouped.map(([cat, items]) => (
-                <div key={cat}>
-                  <h4 className="font-bold mb-2" style={{ color: "var(--rose-deep)" }}>{cat}</h4>
-                  <div className="space-y-2">
-                    {items.map(it => {
-                      const checked = selected.includes(it.id);
-                      return (
-                        <label
-                          key={it.id}
-                          className={`flex items-center justify-between gap-3 rounded-xl border p-3 cursor-pointer transition ${
-                            checked ? "border-primary bg-cream shadow-soft" : "border-border bg-cream/40 hover:bg-cream/70"
-                          }`}
-                        >
-                          <div className="flex items-center gap-3">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => toggle(it.id)}
-                              className="w-5 h-5 accent-[color:var(--rose-deep)]"
-                            />
-                            <span className="font-semibold">{it.emoji} {it.name}</span>
-                          </div>
-                          <span className="font-bold text-sm">{it.price} ج</span>
-                        </label>
-                      );
-                    })}
+            {menuLoading ? (
+              <p className="text-center text-muted-foreground py-8">جاري تحميل المنيو…</p>
+            ) : (
+              <div className="space-y-6">
+                {grouped.map(([cat, items]) => (
+                  <div key={cat}>
+                    <h4 className="font-bold mb-2" style={{ color: "var(--rose-deep)" }}>{cat}</h4>
+                    <div className="space-y-2">
+                      {items.map(it => {
+                        const checked = selected.includes(it.id);
+                        return (
+                          <label
+                            key={it.id}
+                            className={`flex items-center justify-between gap-3 rounded-xl border p-3 cursor-pointer transition ${
+                              checked ? "border-primary bg-cream shadow-soft" : "border-border bg-cream/40 hover:bg-cream/70"
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggle(it.id)}
+                                className="w-5 h-5 accent-[color:var(--rose-deep)]"
+                              />
+                              <span className="font-semibold">{it.emoji} {it.name}</span>
+                            </div>
+                            <span className="font-bold text-sm">{it.price} ج</span>
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
 
-            {/* Donation */}
             <div className="mt-6 rounded-xl border border-border bg-cream/60 p-4">
               <h4 className="font-bold mb-1">🌷 تبرع للحفلة (اختياري)</h4>
               <p className="text-xs text-muted-foreground mb-3">يمكنك زيادة أو إنقاص المبلغ</p>
@@ -202,11 +230,11 @@ function BookingPage() {
 
             <button
               onClick={confirm}
-              disabled={selected.length === 0}
+              disabled={selected.length === 0 || saving}
               className="w-full mt-6 rounded-xl py-3.5 font-bold text-primary-foreground shadow-gold transition disabled:opacity-50 hover:scale-[1.02]"
               style={{ background: "var(--gradient-gold)" }}
             >
-              💾 تأكيد الحجز
+              {saving ? "جاري الحفظ…" : "💾 تأكيد الحجز"}
             </button>
           </div>
         )}
