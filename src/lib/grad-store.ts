@@ -15,9 +15,32 @@ export type Student = {
   name: string;
   phone: string;
   itemIds?: string[];
+  donation?: number;
   paid?: boolean;
   createdAt: number;
 };
+
+export function isDrink(cat: string) {
+  return /مشروب|💧/.test(cat);
+}
+
+export function computeTotals(
+  student: Pick<Student, "itemIds" | "donation">,
+  menu: MenuItem[],
+  settings: Settings,
+) {
+  const items = (student.itemIds ?? [])
+    .map(id => menu.find(m => m.id === id))
+    .filter((x): x is MenuItem => !!x);
+  const drinksItems = items.filter(i => isDrink(i.category));
+  const foodItems = items.filter(i => !isDrink(i.category));
+  const food = foodItems.reduce((a, b) => a + b.price, 0);
+  const drinks = drinksItems.reduce((a, b) => a + b.price, 0);
+  const delivery = items.length > 0 ? settings.deliveryFee : 0;
+  const donation = Math.max(0, Number(student.donation ?? 0) || 0);
+  const total = food + drinks + delivery + donation;
+  return { items, foodItems, drinksItems, food, drinks, delivery, donation, total };
+}
 
 export type Settings = {
   waterPrice: number;
