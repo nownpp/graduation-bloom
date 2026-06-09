@@ -294,31 +294,32 @@ function StudentsTable() {
             <thead className="bg-cream/70 text-right">
               <tr>
                 <th className="p-2">الاسم</th><th className="p-2">التليفون</th><th className="p-2">الوجبة</th>
-                <th className="p-2">الأكل</th><th className="p-2">ديلفري</th><th className="p-2">الإجمالي</th>
+                <th className="p-2">وجبات</th><th className="p-2">مشروبات</th><th className="p-2">ديلفري</th>
+                <th className="p-2">تبرع</th><th className="p-2">الإجمالي</th>
                 <th className="p-2">الدفع</th><th className="p-2"></th>
               </tr>
             </thead>
             <tbody>
               {students.map(s => {
-                const items = (s.itemIds ?? []).map(id => menu.find(m => m.id === id)).filter((x): x is NonNullable<typeof x> => !!x);
-                const food = items.reduce((a, b) => a + b.price, 0);
-                const delivery = items.length > 0 ? settings.deliveryFee : 0;
+                const t = computeTotals(s, menu, settings);
                 return (
                   <tr key={s.id} className="border-b border-border">
                     <td className="p-2 font-bold">{s.name}</td>
                     <td className="p-2">{s.phone}</td>
                     <td className="p-2">
-                      {items.length === 0 ? "—" : (
+                      {t.items.length === 0 ? "—" : (
                         <ul className="space-y-0.5">
-                          {items.map((it, idx) => (
+                          {t.items.map((it, idx) => (
                             <li key={idx}>{it.emoji ?? ""} {it.name} <span className="text-muted-foreground">({it.price} ج)</span></li>
                           ))}
                         </ul>
                       )}
                     </td>
-                    <td className="p-2">{food} ج</td>
-                    <td className="p-2">{delivery} ج</td>
-                    <td className="p-2 font-bold">{food + delivery} ج</td>
+                    <td className="p-2">{t.food} ج</td>
+                    <td className="p-2">{t.drinks} ج</td>
+                    <td className="p-2">{t.delivery} ج</td>
+                    <td className="p-2">{t.donation} ج</td>
+                    <td className="p-2 font-bold">{t.total} ج</td>
                     <td className="p-2">
                       <button
                         onClick={() => togglePaid(s.id)}
