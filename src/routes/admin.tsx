@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { FloralBackdrop, GradHeader } from "@/components/FloralBackdrop";
-import { store, useStorageVersion, computeTotals, isDrink, type MenuItem } from "@/lib/grad-store";
+import { store, useStorageVersion, computeTotals, type MenuItem } from "@/lib/grad-store";
 
 
 export const Route = createFileRoute("/admin")({
