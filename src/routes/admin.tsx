@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { FloralBackdrop, GradHeader } from "@/components/FloralBackdrop";
-import { store, useStorageVersion, type MenuItem } from "@/lib/grad-store";
+import { store, useStorageVersion, computeTotals, type MenuItem } from "@/lib/grad-store";
+
 
 export const Route = createFileRoute("/admin")({
   head: () => ({ meta: [{ title: "لوحة الأدمن — تجمع التخرج 2026" }] }),
@@ -57,22 +58,30 @@ function AdminDashboard() {
   const settings = store.getSettings();
 
   const studentsWithOrder = students.filter(s => (s.itemIds?.length ?? 0) > 0);
-  const sumFor = (s: typeof students[number]) =>
-    (s.itemIds ?? []).reduce((acc, id) => acc + (menu.find(m => m.id === id)?.price ?? 0), 0)
-    + ((s.itemIds?.length ?? 0) > 0 ? settings.deliveryFee : 0);
-  const totalExpected = studentsWithOrder.reduce((sum, s) => sum + sumFor(s), 0);
-  const totalCollected = studentsWithOrder.filter(s => s.paid).reduce((sum, s) => sum + sumFor(s), 0);
+  const totals = students.map(s => ({ s, t: computeTotals(s, menu, settings) }));
+  const totalExpected = totals.reduce((a, x) => a + x.t.total, 0);
+  const totalCollected = totals.filter(x => x.s.paid).reduce((a, x) => a + x.t.total, 0);
+  const totalFood = totals.reduce((a, x) => a + x.t.food, 0);
+  const totalDrinks = totals.reduce((a, x) => a + x.t.drinks, 0);
+  const totalDelivery = totals.reduce((a, x) => a + x.t.delivery, 0);
+  const totalDonations = totals.reduce((a, x) => a + x.t.donation, 0);
 
   return (
     <FloralBackdrop>
       <GradHeader subtitle="لوحة الأدمن" />
       <main className="px-4 pb-20 max-w-6xl mx-auto space-y-8">
-        {/* Stats */}
         <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard label="إجمالي الحضور" value={students.length} emoji="👥" />
           <StatCard label="إجمالي الطلبات" value={studentsWithOrder.length} emoji="🍽️" />
           <StatCard label="المبالغ المتوقعة" value={`${totalExpected} ج`} emoji="💰" />
           <StatCard label="المبالغ المحصلة" value={`${totalCollected} ج`} emoji="✅" />
+        </section>
+
+        <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatCard label="إجمالي الوجبات" value={`${totalFood} ج`} emoji="🍗" />
+          <StatCard label="إجمالي المشروبات" value={`${totalDrinks} ج`} emoji="🥤" />
+          <StatCard label="إجمالي الديلفري" value={`${totalDelivery} ج`} emoji="🛵" />
+          <StatCard label="إجمالي التبرعات" value={`${totalDonations} ج`} emoji="🌷" />
         </section>
 
         <MenuManager />
@@ -285,31 +294,32 @@ function StudentsTable() {
             <thead className="bg-cream/70 text-right">
               <tr>
                 <th className="p-2">الاسم</th><th className="p-2">التليفون</th><th className="p-2">الوجبة</th>
-                <th className="p-2">الأكل</th><th className="p-2">ديلفري</th><th className="p-2">الإجمالي</th>
+                <th className="p-2">وجبات</th><th className="p-2">مشروبات</th><th className="p-2">ديلفري</th>
+                <th className="p-2">تبرع</th><th className="p-2">الإجمالي</th>
                 <th className="p-2">الدفع</th><th className="p-2"></th>
               </tr>
             </thead>
             <tbody>
               {students.map(s => {
-                const items = (s.itemIds ?? []).map(id => menu.find(m => m.id === id)).filter((x): x is NonNullable<typeof x> => !!x);
-                const food = items.reduce((a, b) => a + b.price, 0);
-                const delivery = items.length > 0 ? settings.deliveryFee : 0;
+                const t = computeTotals(s, menu, settings);
                 return (
                   <tr key={s.id} className="border-b border-border">
                     <td className="p-2 font-bold">{s.name}</td>
                     <td className="p-2">{s.phone}</td>
                     <td className="p-2">
-                      {items.length === 0 ? "—" : (
+                      {t.items.length === 0 ? "—" : (
                         <ul className="space-y-0.5">
-                          {items.map((it, idx) => (
+                          {t.items.map((it, idx) => (
                             <li key={idx}>{it.emoji ?? ""} {it.name} <span className="text-muted-foreground">({it.price} ج)</span></li>
                           ))}
                         </ul>
                       )}
                     </td>
-                    <td className="p-2">{food} ج</td>
-                    <td className="p-2">{delivery} ج</td>
-                    <td className="p-2 font-bold">{food + delivery} ج</td>
+                    <td className="p-2">{t.food} ج</td>
+                    <td className="p-2">{t.drinks} ج</td>
+                    <td className="p-2">{t.delivery} ج</td>
+                    <td className="p-2">{t.donation} ج</td>
+                    <td className="p-2 font-bold">{t.total} ج</td>
                     <td className="p-2">
                       <button
                         onClick={() => togglePaid(s.id)}
@@ -337,13 +347,11 @@ function ExportSection() {
     const students = store.getStudents();
     const menu = store.getMenu();
     const settings = store.getSettings();
-    const header = ["الاسم", "التليفون", "الوجبة", "سعر الأكل", "ديلفري", "الإجمالي", "حالة الدفع"];
+    const header = ["الاسم", "التليفون", "الوجبة", "وجبات", "مشروبات", "ديلفري", "تبرع", "الإجمالي", "حالة الدفع"];
     const rows = students.map(s => {
-      const items = (s.itemIds ?? []).map(id => menu.find(m => m.id === id)).filter((x): x is NonNullable<typeof x> => !!x);
-      const food = items.reduce((a, b) => a + b.price, 0);
-      const delivery = items.length > 0 ? settings.deliveryFee : 0;
-      const names = items.map(i => i.name).join(" + ");
-      return [s.name, s.phone, names, food, delivery, food + delivery, s.paid ? "دفع" : "لم يدفع"];
+      const t = computeTotals(s, menu, settings);
+      const names = t.items.map(i => i.name).join(" + ");
+      return [s.name, s.phone, names, t.food, t.drinks, t.delivery, t.donation, t.total, s.paid ? "دفع" : "لم يدفع"];
     });
     const csv = [header, ...rows]
       .map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(","))
