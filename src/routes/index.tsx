@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { FloralBackdrop, GradHeader } from "@/components/FloralBackdrop";
-import { store } from "@/lib/grad-store";
+import { api, getCurrentUser, setCurrentUser } from "@/lib/grad-store";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -18,35 +18,27 @@ function LoginPage() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const u = store.getCurrentUser();
-    if (u) navigate({ to: "/booking" });
+    if (getCurrentUser()) navigate({ to: "/booking" });
   }, [navigate]);
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (name.trim().length < 2) { setError("ادخل اسم صحيح"); return; }
     if (!/^[0-9+\-\s]{7,}$/.test(phone.trim())) { setError("ادخل رقم تليفون صحيح"); return; }
-    const students = store.getStudents();
-    let existing = students.find(s => s.phone === phone.trim());
-    if (!existing) {
-      existing = {
-        id: crypto.randomUUID(),
-        name: name.trim(),
-        phone: phone.trim(),
-        itemIds: [],
-        paid: false,
-        createdAt: Date.now(),
-      };
-      store.setStudents([...students, existing]);
-    } else {
-      const updated: typeof existing = { ...existing, name: name.trim() };
-      store.setStudents(students.map(s => s.id === updated.id ? updated : s));
-      existing = updated;
+    setError("");
+    setLoading(true);
+    try {
+      const s = await api.upsertStudent({ name: name.trim(), phone: phone.trim() });
+      setCurrentUser({ id: s.id, phone: s.phone });
+      navigate({ to: "/booking" });
+    } catch (err: any) {
+      setError(err?.message ?? "حدث خطأ، حاول مجدداً");
+    } finally {
+      setLoading(false);
     }
-    store.setCurrentUser(existing);
-    navigate({ to: "/booking" });
   }
 
   return (
@@ -78,10 +70,11 @@ function LoginPage() {
 
           <button
             type="submit"
-            className="w-full mt-6 rounded-xl py-3.5 font-bold text-primary-foreground shadow-soft transition hover:scale-[1.02]"
+            disabled={loading}
+            className="w-full mt-6 rounded-xl py-3.5 font-bold text-primary-foreground shadow-soft transition hover:scale-[1.02] disabled:opacity-60"
             style={{ background: "var(--gradient-rose)" }}
           >
-            🌹 تسجيل الدخول / حجز مكان
+            {loading ? "جاري الحفظ…" : "🌹 تسجيل الدخول / حجز مكان"}
           </button>
 
           <div className="mt-6 text-center text-xs text-muted-foreground">
