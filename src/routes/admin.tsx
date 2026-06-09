@@ -1,8 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { FloralBackdrop, GradHeader } from "@/components/FloralBackdrop";
-import { store, useStorageVersion, computeTotals, type MenuItem } from "@/lib/grad-store";
-
+import {
+  useMenu, useStudents, useSettings,
+  api, computeTotals,
+  type MenuItem, type Student,
+} from "@/lib/grad-store";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({ meta: [{ title: "لوحة الأدمن — تجمع التخرج 2026" }] }),
@@ -52,12 +55,11 @@ function AdminPage() {
 }
 
 function AdminDashboard() {
-  useStorageVersion();
-  const students = store.getStudents();
-  const menu = store.getMenu();
-  const settings = store.getSettings();
+  const { menu } = useMenu();
+  const { students } = useStudents();
+  const { settings } = useSettings();
 
-  const studentsWithOrder = students.filter(s => (s.itemIds?.length ?? 0) > 0);
+  const studentsWithOrder = students.filter(s => (s.item_ids?.length ?? 0) > 0);
   const totals = students.map(s => ({ s, t: computeTotals(s, menu, settings) }));
   const totalExpected = totals.reduce((a, x) => a + x.t.total, 0);
   const totalCollected = totals.filter(x => x.s.paid).reduce((a, x) => a + x.t.total, 0);
@@ -84,11 +86,11 @@ function AdminDashboard() {
           <StatCard label="إجمالي التبرعات" value={`${totalDonations} ج`} emoji="🌷" />
         </section>
 
-        <MenuManager />
+        <MenuManager menu={menu} />
         <PriceSettings />
-        <OrderSummary />
-        <StudentsTable />
-        <ExportSection />
+        <OrderSummary students={students} menu={menu} />
+        <StudentsTable students={students} menu={menu} settings={settings} />
+        <ExportSection students={students} menu={menu} settings={settings} />
       </main>
     </FloralBackdrop>
   );
@@ -113,8 +115,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function MenuManager() {
-  const menu = store.getMenu();
+function MenuManager({ menu }: { menu: MenuItem[] }) {
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
   const [emoji, setEmoji] = useState("");
@@ -131,26 +132,18 @@ function MenuManager() {
     return Array.from(map.entries());
   }, [menu]);
 
-  function addItem(e: React.FormEvent) {
+  async function addItem(e: React.FormEvent) {
     e.preventDefault();
     const cat = (category === "__new" ? newCat : category).trim();
     if (!name.trim() || !price || !cat) return;
-    const item: MenuItem = {
-      id: crypto.randomUUID(),
+    await api.addMenuItem({
       name: name.trim(),
       price: Number(price),
       category: cat,
-      emoji: emoji.trim() || undefined,
-    };
-    store.setMenu([...menu, item]);
+      emoji: emoji.trim() || null,
+      sort_order: menu.length + 1,
+    });
     setName(""); setPrice(""); setEmoji(""); setNewCat("");
-  }
-  function updateItem(id: string, patch: Partial<MenuItem>) {
-    store.setMenu(menu.map(m => m.id === id ? { ...m, ...patch } : m));
-  }
-  function removeItem(id: string) {
-    if (!confirm("احذف هذا الصنف؟")) return;
-    store.setMenu(menu.filter(m => m.id !== id));
   }
 
   return (
@@ -178,16 +171,36 @@ function MenuManager() {
             <div className="space-y-2">
               {items.map(it => (
                 <div key={it.id} className="grid grid-cols-12 gap-2 items-center bg-cream/40 rounded-lg p-2 text-sm">
-                  <input value={it.emoji ?? ""} onChange={e => updateItem(it.id, { emoji: e.target.value })} className="col-span-1 rounded border border-border bg-card px-2 py-1.5 text-center" />
-                  <input value={it.name} onChange={e => updateItem(it.id, { name: e.target.value })} className="col-span-5 rounded border border-border bg-card px-2 py-1.5 text-right" />
-                  <select value={it.category} onChange={e => updateItem(it.id, { category: e.target.value })} className="col-span-3 rounded border border-border bg-card px-2 py-1.5 text-right">
+                  <input
+                    defaultValue={it.emoji ?? ""}
+                    onBlur={e => { if (e.target.value !== (it.emoji ?? "")) api.updateMenuItem(it.id, { emoji: e.target.value }); }}
+                    className="col-span-1 rounded border border-border bg-card px-2 py-1.5 text-center"
+                  />
+                  <input
+                    defaultValue={it.name}
+                    onBlur={e => { if (e.target.value !== it.name) api.updateMenuItem(it.id, { name: e.target.value }); }}
+                    className="col-span-5 rounded border border-border bg-card px-2 py-1.5 text-right"
+                  />
+                  <select
+                    defaultValue={it.category}
+                    onChange={e => api.updateMenuItem(it.id, { category: e.target.value })}
+                    className="col-span-3 rounded border border-border bg-card px-2 py-1.5 text-right"
+                  >
                     {categories.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
-                  <input type="number" value={it.price} onChange={e => updateItem(it.id, { price: Number(e.target.value) })} className="col-span-1 rounded border border-border bg-card px-2 py-1.5 text-right" />
-                  <button onClick={() => updateItem(it.id, { hidden: !it.hidden })} className={`col-span-1 rounded px-2 py-1.5 text-xs font-bold ${it.hidden ? "bg-muted text-muted-foreground" : "bg-green-100 text-green-800"}`}>
+                  <input
+                    type="number"
+                    defaultValue={it.price}
+                    onBlur={e => { const n = Number(e.target.value); if (n !== it.price) api.updateMenuItem(it.id, { price: n }); }}
+                    className="col-span-1 rounded border border-border bg-card px-2 py-1.5 text-right"
+                  />
+                  <button onClick={() => api.updateMenuItem(it.id, { hidden: !it.hidden })} className={`col-span-1 rounded px-2 py-1.5 text-xs font-bold ${it.hidden ? "bg-muted text-muted-foreground" : "bg-green-100 text-green-800"}`}>
                     {it.hidden ? "مخفي" : "ظاهر"}
                   </button>
-                  <button onClick={() => removeItem(it.id)} className="col-span-1 rounded bg-destructive/10 text-destructive px-2 py-1.5 text-xs font-bold">حذف</button>
+                  <button
+                    onClick={() => { if (confirm("احذف هذا الصنف؟")) api.deleteMenuItem(it.id); }}
+                    className="col-span-1 rounded bg-destructive/10 text-destructive px-2 py-1.5 text-xs font-bold"
+                  >حذف</button>
                 </div>
               ))}
             </div>
@@ -199,7 +212,7 @@ function MenuManager() {
 }
 
 function PriceSettings() {
-  const s = store.getSettings();
+  const { settings } = useSettings();
   return (
     <Section title="⚙️ ضبط الأسعار العامة">
       <div className="grid md:grid-cols-2 gap-4">
@@ -207,8 +220,9 @@ function PriceSettings() {
           <label className="block text-sm font-bold mb-1">سعر المياه</label>
           <input
             type="number"
-            defaultValue={s.waterPrice}
-            onBlur={e => store.setSettings({ ...s, waterPrice: Number(e.target.value) })}
+            defaultValue={settings.waterPrice}
+            key={`w-${settings.waterPrice}`}
+            onBlur={e => api.saveSettings({ ...settings, waterPrice: Number(e.target.value) })}
             className="w-full rounded-xl border border-border bg-cream/60 px-4 py-3 text-right"
           />
         </div>
@@ -216,8 +230,9 @@ function PriceSettings() {
           <label className="block text-sm font-bold mb-1">رسوم الديلفري</label>
           <input
             type="number"
-            defaultValue={s.deliveryFee}
-            onBlur={e => store.setSettings({ ...s, deliveryFee: Number(e.target.value) })}
+            defaultValue={settings.deliveryFee}
+            key={`d-${settings.deliveryFee}`}
+            onBlur={e => api.saveSettings({ ...settings, deliveryFee: Number(e.target.value) })}
             className="w-full rounded-xl border border-border bg-cream/60 px-4 py-3 text-right"
           />
         </div>
@@ -227,16 +242,14 @@ function PriceSettings() {
   );
 }
 
-function OrderSummary() {
-  const students = store.getStudents();
-  const menu = store.getMenu();
+function OrderSummary({ students, menu }: { students: Student[]; menu: MenuItem[] }) {
   const counts = new Map<string, number>();
   students.forEach(s => {
-    (s.itemIds ?? []).forEach(id => counts.set(id, (counts.get(id) ?? 0) + 1));
+    (s.item_ids ?? []).forEach(id => counts.set(id, (counts.get(id) ?? 0) + 1));
   });
   const rows = Array.from(counts.entries()).map(([id, qty]) => {
     const it = menu.find(m => m.id === id);
-    return { name: it?.name ?? "—", emoji: it?.emoji ?? "", qty, price: it?.price ?? 0, total: (it?.price ?? 0) * qty };
+    return { name: it?.name ?? "—", emoji: it?.emoji ?? "", qty, price: Number(it?.price ?? 0), total: Number(it?.price ?? 0) * qty };
   });
   const grand = rows.reduce((a, b) => a + b.total, 0);
 
@@ -271,19 +284,7 @@ function OrderSummary() {
   );
 }
 
-function StudentsTable() {
-  const students = store.getStudents();
-  const menu = store.getMenu();
-  const settings = store.getSettings();
-
-  function togglePaid(id: string) {
-    store.setStudents(students.map(s => s.id === id ? { ...s, paid: !s.paid } : s));
-  }
-  function remove(id: string) {
-    if (!confirm("احذف هذا الطالب؟")) return;
-    store.setStudents(students.filter(s => s.id !== id));
-  }
-
+function StudentsTable({ students, menu, settings }: { students: Student[]; menu: MenuItem[]; settings: { waterPrice: number; deliveryFee: number } }) {
   return (
     <Section title="👥 قائمة الطلاب">
       {students.length === 0 ? (
@@ -322,14 +323,17 @@ function StudentsTable() {
                     <td className="p-2 font-bold">{t.total} ج</td>
                     <td className="p-2">
                       <button
-                        onClick={() => togglePaid(s.id)}
+                        onClick={() => api.updateStudent(s.id, { paid: !s.paid })}
                         className={`rounded-full px-3 py-1 text-xs font-bold ${s.paid ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}
                       >
                         {s.paid ? "✅ دفع" : "🔴 لم يدفع"}
                       </button>
                     </td>
                     <td className="p-2">
-                      <button onClick={() => remove(s.id)} className="text-destructive text-xs">حذف</button>
+                      <button
+                        onClick={() => { if (confirm("احذف هذا الطالب؟")) api.deleteStudent(s.id); }}
+                        className="text-destructive text-xs"
+                      >حذف</button>
                     </td>
                   </tr>
                 );
@@ -342,11 +346,8 @@ function StudentsTable() {
   );
 }
 
-function ExportSection() {
+function ExportSection({ students, menu, settings }: { students: Student[]; menu: MenuItem[]; settings: { waterPrice: number; deliveryFee: number } }) {
   function exportCsv() {
-    const students = store.getStudents();
-    const menu = store.getMenu();
-    const settings = store.getSettings();
     const header = ["الاسم", "التليفون", "الوجبة", "وجبات", "مشروبات", "ديلفري", "تبرع", "الإجمالي", "حالة الدفع"];
     const rows = students.map(s => {
       const t = computeTotals(s, menu, settings);
