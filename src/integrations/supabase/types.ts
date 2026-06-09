@@ -14,7 +14,90 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      app_settings: {
+        Row: {
+          delivery_fee: number
+          id: number
+          updated_at: string
+          water_price: number
+        }
+        Insert: {
+          delivery_fee?: number
+          id?: number
+          updated_at?: string
+          water_price?: number
+        }
+        Update: {
+          delivery_fee?: number
+          id?: number
+          updated_at?: string
+          water_price?: number
+        }
+        Relationships: []
+      }
+      menu_items: {
+        Row: {
+          category: string
+          created_at: string
+          emoji: string | null
+          hidden: boolean
+          id: string
+          name: string
+          price: number
+          sort_order: number
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          emoji?: string | null
+          hidden?: boolean
+          id?: string
+          name: string
+          price?: number
+          sort_order?: number
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          emoji?: string | null
+          hidden?: boolean
+          id?: string
+          name?: string
+          price?: number
+          sort_order?: number
+        }
+        Relationships: []
+      }
+      students: {
+        Row: {
+          created_at: string
+          donation: number
+          id: string
+          item_ids: string[]
+          name: string
+          paid: boolean
+          phone: string
+        }
+        Insert: {
+          created_at?: string
+          donation?: number
+          id?: string
+          item_ids?: string[]
+          name: string
+          paid?: boolean
+          phone: string
+        }
+        Update: {
+          created_at?: string
+          donation?: number
+          id?: string
+          item_ids?: string[]
+          name?: string
+          paid?: boolean
+          phone?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
