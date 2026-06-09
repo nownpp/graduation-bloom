@@ -1,152 +1,223 @@
-// LocalStorage data layer for graduation booking app
-import { useEffect, useState } from "react";
+// Cloud-backed data layer for graduation booking app
+import { useEffect, useState, useCallback } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 export type MenuItem = {
   id: string;
   name: string;
   price: number;
   category: string;
-  emoji?: string;
+  emoji?: string | null;
   hidden?: boolean;
+  sort_order?: number;
 };
 
 export type Student = {
   id: string;
   name: string;
   phone: string;
-  itemIds?: string[];
-  donation?: number;
-  paid?: boolean;
-  createdAt: number;
+  item_ids: string[];
+  donation: number;
+  paid: boolean;
+  created_at?: string;
 };
-
-export function isDrink(cat: string) {
-  return /مشروب|💧/.test(cat);
-}
-
-export function computeTotals(
-  student: Pick<Student, "itemIds" | "donation">,
-  menu: MenuItem[],
-  settings: Settings,
-) {
-  const items = (student.itemIds ?? [])
-    .map(id => menu.find(m => m.id === id))
-    .filter((x): x is MenuItem => !!x);
-  const drinksItems = items.filter(i => isDrink(i.category));
-  const foodItems = items.filter(i => !isDrink(i.category));
-  const food = foodItems.reduce((a, b) => a + b.price, 0);
-  const drinks = drinksItems.reduce((a, b) => a + b.price, 0);
-  const delivery = items.length > 0 ? settings.deliveryFee : 0;
-  const donation = Math.max(0, Number(student.donation ?? 0) || 0);
-  const total = food + drinks + delivery + donation;
-  return { items, foodItems, drinksItems, food, drinks, delivery, donation, total };
-}
 
 export type Settings = {
   waterPrice: number;
   deliveryFee: number;
 };
 
-const KEYS = {
-  menu: "grad2026_menu",
-  students: "grad2026_students",
-  settings: "grad2026_settings",
-  currentUser: "grad2026_current_user",
+const CURRENT_USER_KEY = "grad2026_current_user";
+
+export function isDrink(cat: string) {
+  return /مشروب|💧/.test(cat);
+}
+
+export function computeTotals(
+  student: { item_ids?: string[]; donation?: number | null },
+  menu: MenuItem[],
+  settings: Settings,
+) {
+  const items = (student.item_ids ?? [])
+    .map(id => menu.find(m => m.id === id))
+    .filter((x): x is MenuItem => !!x);
+  const drinksItems = items.filter(i => isDrink(i.category));
+  const foodItems = items.filter(i => !isDrink(i.category));
+  const food = foodItems.reduce((a, b) => a + Number(b.price), 0);
+  const drinks = drinksItems.reduce((a, b) => a + Number(b.price), 0);
+  const delivery = items.length > 0 ? settings.deliveryFee : 0;
+  const donation = Math.max(0, Number(student.donation ?? 0) || 0);
+  const total = food + drinks + delivery + donation;
+  return { items, foodItems, drinksItems, food, drinks, delivery, donation, total };
+}
+
+// ============= Realtime hooks =============
+
+export function useMenu() {
+  const [menu, setMenu] = useState<MenuItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    const { data } = await supabase
+      .from("menu_items" as any)
+      .select("*")
+      .order("sort_order", { ascending: true });
+    if (data) setMenu(data as any);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const ch = supabase
+      .channel("menu_items_changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "menu_items" }, () => refresh())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [refresh]);
+
+  return { menu, loading, refresh };
+}
+
+export function useStudents() {
+  const [students, setStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    const { data } = await supabase
+      .from("students" as any)
+      .select("*")
+      .order("created_at", { ascending: true });
+    if (data) setStudents(data as any);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const ch = supabase
+      .channel("students_changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "students" }, () => refresh())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [refresh]);
+
+  return { students, loading, refresh };
+}
+
+export function useSettings() {
+  const [settings, setSettings] = useState<Settings>({ waterPrice: 10, deliveryFee: 10 });
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    const { data } = await supabase
+      .from("app_settings" as any)
+      .select("*")
+      .eq("id", 1)
+      .maybeSingle();
+    if (data) {
+      const row = data as any;
+      setSettings({ waterPrice: Number(row.water_price), deliveryFee: Number(row.delivery_fee) });
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const ch = supabase
+      .channel("settings_changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "app_settings" }, () => refresh())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [refresh]);
+
+  return { settings, loading, refresh };
+}
+
+// ============= Mutations =============
+
+export const api = {
+  async addMenuItem(item: Omit<MenuItem, "id">) {
+    const { data, error } = await supabase
+      .from("menu_items" as any)
+      .insert([{ ...item, emoji: item.emoji ?? null }] as any)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+  async updateMenuItem(id: string, patch: Partial<MenuItem>) {
+    const { error } = await supabase.from("menu_items" as any).update(patch as any).eq("id", id);
+    if (error) throw error;
+  },
+  async deleteMenuItem(id: string) {
+    const { error } = await supabase.from("menu_items" as any).delete().eq("id", id);
+    if (error) throw error;
+  },
+
+  async upsertStudent(s: { id?: string; name: string; phone: string }) {
+    // Try by phone first
+    const { data: existing } = await supabase
+      .from("students" as any)
+      .select("*")
+      .eq("phone", s.phone)
+      .maybeSingle();
+    if (existing) {
+      const { data, error } = await supabase
+        .from("students" as any)
+        .update({ name: s.name } as any)
+        .eq("id", (existing as any).id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as any as Student;
+    }
+    const { data, error } = await supabase
+      .from("students" as any)
+      .insert([{ name: s.name, phone: s.phone }] as any)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as any as Student;
+  },
+  async updateStudent(id: string, patch: Partial<Student>) {
+    const { error } = await supabase.from("students" as any).update(patch as any).eq("id", id);
+    if (error) throw error;
+  },
+  async deleteStudent(id: string) {
+    const { error } = await supabase.from("students" as any).delete().eq("id", id);
+    if (error) throw error;
+  },
+
+  async saveSettings(s: Settings) {
+    const { error } = await supabase
+      .from("app_settings" as any)
+      .update({ water_price: s.waterPrice, delivery_fee: s.deliveryFee, updated_at: new Date().toISOString() } as any)
+      .eq("id", 1);
+    if (error) throw error;
+    // Also sync "مياه" price
+    await supabase.from("menu_items" as any).update({ price: s.waterPrice } as any).eq("name", "مياه");
+  },
 };
 
-const DEFAULT_MENU: MenuItem[] = [
-  // Chicken
-  { id: "c1", category: "🍗 وجبات الدجاج (بروستد ومشوي)", name: "نصف فرخة بروستد (وركين)", price: 200, emoji: "🍗" },
-  { id: "c2", category: "🍗 وجبات الدجاج (بروستد ومشوي)", name: "نصف فرخة مشوية (وركين)", price: 200, emoji: "🍗" },
-  { id: "c3", category: "🍗 وجبات الدجاج (بروستد ومشوي)", name: "وجبة كرسبي 4 قطع", price: 165, emoji: "🍗" },
-  { id: "c4", category: "🍗 وجبات الدجاج (بروستد ومشوي)", name: "وجبة سبايسي 4 قطع", price: 165, emoji: "🌶️" },
-  { id: "c5", category: "🍗 وجبات الدجاج (بروستد ومشوي)", name: "وجبة شيش طاووق", price: 180, emoji: "🍢" },
-  { id: "c6", category: "🍗 وجبات الدجاج (بروستد ومشوي)", name: "كفتة فراخ مع أرز", price: 145, emoji: "🍚" },
-  { id: "c7", category: "🍗 وجبات الدجاج (بروستد ومشوي)", name: "ربع فرخة بروستد (صدر)", price: 145, emoji: "🍗" },
-  { id: "c8", category: "🍗 وجبات الدجاج (بروستد ومشوي)", name: "ربع فرخة مشوية (صدر)", price: 140, emoji: "🍗" },
-  { id: "c9", category: "🍗 وجبات الدجاج (بروستد ومشوي)", name: "ربع فرخة بروستد (ورك)", price: 115, emoji: "🍗" },
-  { id: "c10", category: "🍗 وجبات الدجاج (بروستد ومشوي)", name: "ربع فرخة مشوية (ورك)", price: 115, emoji: "🍗" },
-  // Shawarma
-  { id: "s1", category: "🌯 وجبات وفتة الشاورما", name: "وجبة شاورما فرط ميكس", price: 195, emoji: "🌯" },
-  { id: "s2", category: "🌯 وجبات وفتة الشاورما", name: "وجبة فتة شاورما لحم كبير", price: 170, emoji: "🥘" },
-  { id: "s3", category: "🌯 وجبات وفتة الشاورما", name: "وجبة فتة شاورما ميكس كبير", price: 145, emoji: "🥘" },
-  { id: "s4", category: "🌯 وجبات وفتة الشاورما", name: "وجبة شاورما عربي لحم", price: 140, emoji: "🌯" },
-  { id: "s5", category: "🌯 وجبات وفتة الشاورما", name: "وجبة شاورما فرط فراخ", price: 140, emoji: "🌯" },
-  { id: "s6", category: "🌯 وجبات وفتة الشاورما", name: "وجبة ماريا", price: 130, emoji: "🍽️" },
-  { id: "s7", category: "🌯 وجبات وفتة الشاورما", name: "وجبة شاورما عربي فراخ", price: 120, emoji: "🌯" },
-  { id: "s8", category: "🌯 وجبات وفتة الشاورما", name: "وجبة فتة شاورما فراخ كبير", price: 120, emoji: "🥘" },
-  // Sandwiches
-  { id: "n1", category: "🍔 الساندوتشات (حجم كبير)", name: "ساندوتش تشكن كلاسيك الشامي", price: 200, emoji: "🥪" },
-  { id: "n2", category: "🍔 الساندوتشات (حجم كبير)", name: "ساندوتش تشكن سبايسي الشامي", price: 200, emoji: "🌶️" },
-  { id: "n3", category: "🍔 الساندوتشات (حجم كبير)", name: "ساندوتش فرانشيسكو", price: 110, emoji: "🥪" },
-  { id: "n4", category: "🍔 الساندوتشات (حجم كبير)", name: "ساندوتش فاهيتا دجاج", price: 110, emoji: "🥪" },
-  { id: "n5", category: "🍔 الساندوتشات (حجم كبير)", name: "ساندوتش شاورما لحم", price: 110, emoji: "🥪" },
-  { id: "n6", category: "🍔 الساندوتشات (حجم كبير)", name: "ساندوتش كباب", price: 110, emoji: "🍢" },
-  { id: "n7", category: "🍔 الساندوتشات (حجم كبير)", name: "برجر لحم", price: 100, emoji: "🍔" },
-  // Drinks
-  { id: "d1", category: "💧 المشروبات", name: "مياه", price: 10, emoji: "💧" },
-];
+// ============= Current user (local only) =============
 
-const DEFAULT_SETTINGS: Settings = { waterPrice: 10, deliveryFee: 10 };
-
-function safeGet<T>(key: string, fallback: T): T {
-  if (typeof window === "undefined") return fallback;
+export function getCurrentUser(): { id: string; phone: string } | null {
+  if (typeof window === "undefined") return null;
   try {
-    const v = window.localStorage.getItem(key);
-    return v ? (JSON.parse(v) as T) : fallback;
+    const v = window.localStorage.getItem(CURRENT_USER_KEY);
+    return v ? JSON.parse(v) : null;
   } catch {
-    return fallback;
+    return null;
   }
 }
-function safeSet(key: string, value: unknown) {
+export function setCurrentUser(u: { id: string; phone: string } | null) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(key, JSON.stringify(value));
-  window.dispatchEvent(new Event("grad2026:update"));
+  if (u) window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(u));
+  else window.localStorage.removeItem(CURRENT_USER_KEY);
 }
 
-export const store = {
-  getMenu(): MenuItem[] {
-    const m = safeGet<MenuItem[] | null>(KEYS.menu, null);
-    if (!m) {
-      safeSet(KEYS.menu, DEFAULT_MENU);
-      return DEFAULT_MENU;
-    }
-    return m;
-  },
-  setMenu(m: MenuItem[]) { safeSet(KEYS.menu, m); },
-  getStudents(): Student[] { return safeGet<Student[]>(KEYS.students, []); },
-  setStudents(s: Student[]) { safeSet(KEYS.students, s); },
-  getSettings(): Settings {
-    const s = safeGet<Settings | null>(KEYS.settings, null);
-    if (!s) { safeSet(KEYS.settings, DEFAULT_SETTINGS); return DEFAULT_SETTINGS; }
-    return { ...DEFAULT_SETTINGS, ...s };
-  },
-  setSettings(s: Settings) {
-    safeSet(KEYS.settings, s);
-    // also sync water price into menu item named "مياه"
-    const menu = store.getMenu();
-    const updated = menu.map(m => m.name === "مياه" ? { ...m, price: s.waterPrice } : m);
-    safeSet(KEYS.menu, updated);
-  },
-  getCurrentUser(): Student | null { return safeGet<Student | null>(KEYS.currentUser, null); },
-  setCurrentUser(s: Student | null) { safeSet(KEYS.currentUser, s); },
-  resetAll() {
-    if (typeof window === "undefined") return;
-    Object.values(KEYS).forEach(k => window.localStorage.removeItem(k));
-    window.dispatchEvent(new Event("grad2026:update"));
-  },
-};
-
-export function useStorageVersion() {
-  const [v, setV] = useState(0);
-  useEffect(() => {
-    const handler = () => setV(x => x + 1);
-    window.addEventListener("grad2026:update", handler);
-    window.addEventListener("storage", handler);
-    return () => {
-      window.removeEventListener("grad2026:update", handler);
-      window.removeEventListener("storage", handler);
-    };
-  }, []);
-  return v;
+export function useCurrentStudent() {
+  const { students } = useStudents();
+  const ref = getCurrentUser();
+  const student = ref ? students.find(s => s.id === ref.id) ?? null : null;
+  return student;
 }
